@@ -2,7 +2,7 @@ module github.com/ycoliveira
 
 go 1.22.1
 
-require github.com/mattn/go-sqlite3 v1.14.22
+require modernc.org/sqlite v1.29.8
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
@@ -16,7 +16,6 @@ require (
 	modernc.org/libc v1.49.3 // indirect
 	modernc.org/mathutil v1.6.0 // indirect
 	modernc.org/memory v1.8.0 // indirect
-	modernc.org/sqlite v1.29.8 // indirect
 	modernc.org/strutil v1.2.0 // indirect
 	modernc.org/token v1.1.0 // indirect
 )

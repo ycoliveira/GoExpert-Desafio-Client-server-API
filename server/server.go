@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 type ExchangeRate struct {
@@ -23,6 +23,24 @@ type ExchangeRate struct {
 	Ask        string `json:"ask"`
 	Timestamp  string `json:"timestamp"`
 	CreateDate string `json:"create_date"`
+}
+
+func initDB() *sql.DB {
+	db, err := sql.Open("sqlite", "./quotes.db")
+	if err != nil {
+		log.Fatal("Error opening database:", err)
+	}
+
+	createTableSQL := `CREATE TABLE IF NOT EXISTS quotes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        value TEXT NOT NULL
+    );`
+	_, err = db.Exec(createTableSQL)
+	if err != nil {
+		log.Fatal("Error creating table:", err)
+	}
+
+	return db
 }
 
 func fetchExchangeRate(ctx context.Context) (string, error) {
@@ -45,19 +63,12 @@ func fetchExchangeRate(ctx context.Context) (string, error) {
 	return result.USDBRL.Bid, nil
 }
 
-func logExchangeRate(ctx context.Context, bid string) error {
-	db, err := sql.Open("sqlite3", "./quotes.db")
-	if err != nil {
-		return err
-	}
-
-	defer db.Close()
-
-	_, err = db.ExecContext(ctx, "INSERT INTO quotes (value) VALUES (?)", bid)
+func logExchangeRate(db *sql.DB, ctx context.Context, bid string) error {
+	_, err := db.ExecContext(ctx, "INSERT INTO quotes (value) VALUES (?)", bid)
 	return err
 }
 
-func quoteHandler(w http.ResponseWriter, r *http.Request) {
+func quoteHandler(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/cotacao" {
 		http.NotFound(w, r)
 		return
@@ -68,41 +79,27 @@ func quoteHandler(w http.ResponseWriter, r *http.Request) {
 
 	bid, err := fetchExchangeRate(fetchCtx)
 	if err != nil {
-		http.Error(w, "failed to fetch exchange rate", http.StatusServiceUnavailable)
+		log.Println("Timeout or error fetching exchange rate:", err)
+		http.Error(w, "Failed to fetch exchange rate: "+err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
 	logCtx, logCancel := context.WithTimeout(r.Context(), 10*time.Millisecond)
 	defer logCancel()
 
-	if err := logExchangeRate(logCtx, bid); err != nil {
-		log.Println("failed to log exchange rate:", err)
+	if err := logExchangeRate(db, logCtx, bid); err != nil {
+		log.Println("Timeout or error logging exchange rate:", err)
+		http.Error(w, "Failed to log exchange rate: "+err.Error(), http.StatusInternalServerError)
 	}
-
 	json.NewEncoder(w).Encode(map[string]string{"bid": bid})
 }
 
 func main() {
+	db := initDB()
+	defer db.Close()
 
-	http.HandleFunc("/cotacao", quoteHandler)
+	http.HandleFunc("/cotacao", func(w http.ResponseWriter, r *http.Request) {
+		quoteHandler(db, w, r)
+	})
 	log.Fatal(http.ListenAndServe(":8080", nil))
-
-	// req, err := http.Get("https://economia.awesomeapi.com.br/json/last/USD-BRL")
-	// defer req.Body.Close()
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// res, err := io.ReadAll(req.Body)
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// var data Cambio
-	// err = json.Unmarshal(res, &data)
-	// if err != nil {
-	// 	fmt.Println("erro")
-	// }
-
-	// fmt.Println(data)
 }
